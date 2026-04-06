@@ -4,7 +4,9 @@ This folder contains the workflow for training per-Gaussian column and damage ma
 
 ## 🎥 Demo
 
-[![Demo](./assets/demo.gif)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+
+[![Demo](./assets/base.gif)]
+[![Demo](./assets/damage.gif)]
 
 ## Overview
 
