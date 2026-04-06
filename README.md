@@ -25,6 +25,26 @@ While the proposed method is general and can be applied to:
 
 we strongly recommend using DA3 to reproduce the results reported in our work, as our pipeline is developed and validated based on it.
 
+## Demo Data
+
+We provide example Gaussian models and predictions for quick demonstration.
+
+👉 Download from Hugging Face:
+https://huggingface.co/datasets/zuoxu/gs-damage-data
+(the ablation training results are also included)
+### Contents
+
+- `demo/gs/demo_gaussian.ply`: optimized Gaussian model with semantic fields  
+- `demo/predictions/demo_damage_prob.npy`: per-Gaussian damage probabilities  
+
+---
+
+## Usage
+
+1. Download the demo data
+2. Place it under your DA3 output directory:
+
+
 ---
 
 ## Installation
