@@ -1,0 +1,828 @@
+# Probability Gaussians
+
+This folder contains the workflow for training per-Gaussian column and damage masks on top of an existing Gaussian Splatting reconstruction.
+
+The pipeline has four parts:
+1. Prepare a base GS PLY and a set of saved views.
+2. Annotate those views with pixel masks.
+3. Train Gaussian-level column and damage probabilities.
+4. Evaluate and visualize the trained result.
+
+## What The Training Produces
+
+The main training script is [`optimize_gs_damage_multiview_coarse2fine.py`](./optimize_gs_damage_multiview_coarse2fine.py).
+
+It learns two probabilities for each Gaussian:
+- `column_prob`: whether a Gaussian belongs to the target structural region.
+- `damage_prob`: whether a Gaussian belongs to the damage class.
+
+At the end it exports:
+- an optimized PLY
+- a red damage-highlight PLY
+- a green column-highlight PLY
+- a damage-only PLY
+- `damage_prob.npy`
+- `column_prob.npy`
+
+Default outputs go to `output/column/gs_ply_mv_c2f/`.
+
+## Data Layout
+
+Training needs two roots:
+- `view_root`: saved RGB/depth/camera views of the base GS
+- `label_root`: per-view labeled datasets
+
+### `view_root`
+
+For each view name such as `view_0000`, the training and evaluation scripts expect:
+- `view_0000.png`
+- `view_0000_depth.npy`
+- `view_0000_camera.json`
+
+The camera JSON must contain at least:
+- `intrinsics`
+- `w2c_extrinsics`
+- `c2w`
+- `image_size`
+- `fov_rad`
+
+A typical folder looks like:
+
+```text
+view_root/
+  view_0000.png
+  view_0000_depth.npy
+  view_0000_depth.png
+  view_0000_camera.json
+  view_0001.png
+  view_0001_depth.npy
+  view_0001_camera.json
+  ...
+```
+
+### `label_root`
+
+For each labeled view, the code looks for a directory named `<view_name>_dataset`.
+
+Required files inside each dataset folder:
+- `img.png`
+- `label.png`
+- `label_name_to_value.txt`
+
+Useful but optional helper files:
+- `overlay.png`
+- `label_color.png`
+
+A typical folder looks like:
+
+```text
+label_root/
+  view_0000_dataset/
+    img.png
+    label.png
+    label_name_to_value.txt
+    overlay.png
+    label_color.png
+  view_0001_dataset/
+    img.png
+    label.png
+    label_name_to_value.txt
+  ...
+```
+
+The training script pairs `view_0000_dataset/` with:
+- `view_root/view_0000_camera.json`
+- `view_root/view_0000_depth.npy`
+
+### Label Semantics
+
+By default the script treats:
+- all nonzero labels as column supervision
+- one label id as the damage class
+
+Example mapping from this repo:
+
+```text
+_background_ 0
+column 1
+spaling 2
+spalling 2
+damage 3
+```
+
+Important: if your mapping contains both `spaling/spalling` and `damage`, do not rely on auto-inference. Pass `--damage-label-id` explicitly.
+
+For the example above, use:
+
+```bash
+--damage-label-id 3
+```
+
+## Creating The Saved Views
+
+If you already have `view_root` in the format above, you can skip this section.
+
+To capture views from a base GS PLY, use [`view_real_gs.py`](./view_real_gs.py). It opens a browser viewer and lets you save the current camera, RGB image, and depth map.
+
+Example:
+
+```bash
+python output/column/view_real_gs.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --port 8890 \
+  --output-dir output/column/real_gs_saved
+```
+
+Inside the viewer:
+- move the camera to a useful viewpoint
+- click `Save Current View`
+- repeat for multiple views
+
+This produces the `view_root` assets used later for training and evaluation.
+
+## Preparing The Labels
+
+For each saved view:
+1. Copy or keep the RGB image as `img.png` inside `<view_name>_dataset/`.
+2. Create a single-channel `label.png` where pixel values are class ids.
+3. Write `label_name_to_value.txt` with the mapping used by that label image.
+
+Minimum requirement:
+- background should be `0`
+- the column region should be nonzero
+- the damage class should have a stable id across all labeled views
+
+If you only want to supervise damage inside positive masks, keep a dedicated damage label id and pass it with `--damage-label-id`.
+
+## Training
+
+The main training entry point is [`optimize_gs_damage_multiview_coarse2fine.py`](./optimize_gs_damage_multiview_coarse2fine.py).
+
+Basic example:
+
+```bash
+python output/column/optimize_gs_damage_multiview_coarse2fine.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --view-root output/column/real_gs_saved \
+  --label-root output/column/couple_veiws_labeled \
+  --damage-label-id 3 \
+  --steps 3000 \
+  --stage1-steps 1000 \
+  --save-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --save-damage output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+  --save-column output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy
+```
+
+Important inputs:
+- `--gs-ply`: base Gaussian splat PLY to optimize on top of
+- `--view-root`: saved RGB/depth/camera views
+- `--label-root`: labeled view datasets
+- `--damage-label-id`: class id used for damage in `label.png`
+
+Useful controls:
+- `--steps`: total optimization steps
+- `--stage1-steps`: stage 1 trains the column branch before full damage refinement
+- `--batch-size`: number of views per optimization step
+- `--max-train-side`: resizes supervision views for training memory control
+- `--learn-labels-only`: keeps geometry and appearance frozen and only learns labels
+- `--allow-gs-updates`: allows geometry and appearance changes too
+- `--column-thresh-export`: threshold used to gate damage at export time
+- `--damage-thresh`: threshold used for damage export/highlighting
+- `--debug-dir`: where intermediate supervision visualizations are saved
+
+Notes:
+- the default setup is label-focused and keeps the base GS mostly fixed
+- if no Gaussian exceeds the damage threshold, the script falls back to top-k damage Gaussians using `--min-damage-count`
+
+## Training Outputs
+
+The script writes these artifacts by default:
+- `0000_damage_opt_mv_c2f.ply`: optimized base PLY
+- `0000_damage_highlight_mv_c2f.ply`: damage rendered in red
+- `0000_column_highlight_mv_c2f.ply`: column rendered in green
+- `0000_damage_only_mv_c2f.ply`: only selected damage Gaussians
+- `0000_damage_prob_mv_c2f.npy`: per-Gaussian damage probability
+- `0000_column_prob_mv_c2f.npy`: per-Gaussian column probability
+
+If `--debug-every` is enabled, extra images are saved under the debug directory for quick inspection of predicted masks vs GT.
+
+## Quantitative Evaluation
+
+Use [`eval_segmentation.py`](./eval_segmentation.py) for image-space damage-mask evaluation on the held-out test views, and [`test_3d_consistency.py`](./test_3d_consistency.py) for the 3D consistency metrics.
+
+### 2D Damage Segmentation
+
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --column-prob output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --out-dir output/column/test_metrics_viewer_strict_mv_c2f
+```
+
+This writes:
+
+```text
+output/column/test_metrics_viewer_strict_mv_c2f/metrics_summary.json
+```
+
+The output JSON includes per-view and overall image-space segmentation metrics:
+- `iou`
+- `precision`
+- `recall`
+- `f1`
+- `accuracy`
+
+### Viewer-Delta Damage Segmentation
+
+Use [`eval_segmentation.py`](./eval_segmentation.py) when you want image-space damage-mask metrics on the held-out test views in `output/column/real_gs_saved_test_gt`.
+
+Ablation example, w/o Cross-Attention:
+
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_crossattn/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --out-dir output/column/test_metrics_viewer_ablation_no_crossattn
+```
+
+Ablation example, w/o Multi-View Losses:
+
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/ablation_no_mv/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_mv/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_mv/0000_damage_prob.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --out-dir output/column/test_metrics_viewer_ablation_no_mv
+```
+
+These write:
+
+```text
+output/column/test_metrics_viewer_ablation_no_crossattn/metrics_summary.json
+output/column/test_metrics_viewer_ablation_no_mv/metrics_summary.json
+```
+
+## 3D Consistency Metrics
+
+For the paper-style 3D metrics used in this project, use:
+- [`test_3d_consistency.py`](./test_3d_consistency.py) for the trained mask Gaussians in `output/column`
+- [`../column_mask/test_3d_consistency_basic_gs.py`](../column_mask/test_3d_consistency_basic_gs.py) for the plain GS baseline in `output/column_mask`
+
+These scripts report:
+- `E_label_cons_column`: cross-view visible-Gaussian label disagreement for the column/foreground mask
+- `E_label_cons_spalling`: cross-view visible-Gaussian label disagreement for the spalling/damage mask
+- `E_pred`: Gaussian prediction agreement with multi-view observations
+- `R_depth`: depth-based surface support ratio
+
+Lower is better for:
+- `E_label_cons_column`
+- `E_label_cons_spalling`
+- `E_pred`
+
+Higher is better for:
+- `R_depth`
+
+### Important Label-ID Note
+
+Do not rely on automatic class-id inference if your exported `label.png` values do not exactly match `label_name_to_value.txt`.
+
+In this repo, two example datasets use different effective ids in the actual PNGs:
+- `output/column/real_gs_saved_test_gt`: damage/spalling pixels are encoded as `3`
+- `output/column_mask/couple_veiws_labeled`: spalling pixels are encoded as `2`
+
+If you already know the correct id, pass both:
+
+```bash
+--damage-label-id <id> --no-infer-damage-label-id
+```
+
+### Trained Mask Gaussians Example
+
+Example command for the trained result:
+
+
+
+
+
+
+```bash
+python output/column/test_3d_consistency.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+  --label-root output/column/real_gs_saved_test_gt \
+  --view-root output/column/real_gs_saved_test \
+  --damage-label-id 3 \
+  --no-infer-damage-label-id
+```
+
+This writes:
+
+```text
+output/column/gs_ply_mv_c2f/metrics_3d_consistency.json
+```
+
+### Plain GS Baseline Example
+
+Example command for the baseline GS:
+
+```bash
+python output/column_mask/test_3d_consistency_basic_gs.py \
+  --gs-ply output/column_mask/gs_ply/column_mask.ply \
+  --label-root output/column_mask/couple_veiws_labeled \
+  --view-root output/column_mask/real_gs_saved_test \
+  --damage-label-id 2 \
+  --no-infer-damage-label-id
+```
+
+This writes:
+
+```text
+output/column_mask/metrics_3d_consistency_basic_gs.json
+```
+
+### Neighborhood-Based Label Sampling
+
+Both scripts support:
+
+```bash
+--label-radius <r>
+```
+
+This uses a local max-pooled window around each projected Gaussian center when reading labels:
+- `0` means exact center pixel
+- `2` means a `5x5` neighborhood
+- `4` means a `9x9` neighborhood
+
+This is useful when small spalling regions are too sparse for strict center-pixel sampling.
+
+
+## Qualitative Evaluation
+
+### Interactive trained viewer
+
+Use [`view_trained_gs.py`](./view_trained_gs.py) to inspect the trained Gaussians interactively.
+
+By default, this viewer now applies the strict opacity-aware spatial filtering that was previously exposed through `view_trained_gs_strict_mv_c2f.py`. Use `--no-strict-filter` if you want the old unfiltered behavior.
+
+Example:
+
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --column-prob output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+  --port 8893
+```
+
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_crossattn/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+  --port 8893
+```
+The viewer lets you:
+- switch between base, column, and damage overlays
+- adjust thresholds interactively
+- save rendered views and camera metadata for later comparison
+
+### Re-render the model from saved cameras
+
+Use [`render_saved_camera_views.py`](./render_saved_camera_views.py) to render a PLY from previously saved camera JSON files.
+
+Example:
+
+```bash
+python output/column/render_saved_camera_views.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --camera-dir output/column/real_gs_saved \
+  --output-dir output/column/rendered_eval_views
+```
+
+This is useful when you want exact camera-matched renderings for qualitative comparison.
+
+### Optional viewer-highlight mask evaluation
+
+[`eval_test_view_metrics_viewer.py`](./eval_test_view_metrics_viewer.py) evaluates the visible red highlight region from viewer-style renders against GT masks.
+
+Use it when you specifically care about how the final viewer overlay matches the annotated damage area, not just per-Gaussian probabilities.
+
+## Practical Tips
+
+- Use diverse viewpoints. Front-only labels usually leave too many Gaussians weakly constrained.
+- Keep view names consistent between `view_root` and `label_root`.
+- If camera/depth files are missing for a labeled view, that view is skipped.
+- If image sizes differ across views, the scripts resize everything to a common training/evaluation resolution.
+- If your labels contain both coarse damage and fine spalling classes, choose one target and pass its id explicitly with `--damage-label-id`.
+- Start with `--learn-labels-only` before allowing geometry changes.
+
+## Minimal End-To-End Example
+
+```bash
+# 1. Capture training views from the base GS
+python output/column/view_real_gs.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --output-dir output/column/real_gs_saved
+
+# 2. Manually create labels under:
+#    output/column/couple_veiws_labeled/view_XXXX_dataset/
+
+# 3. Train Gaussian masks
+python output/column/optimize_gs_damage.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --view-root output/column/real_gs_saved \
+  --label-root output/column/couple_veiws_labeled \
+  --damage-label-id 3
+
+# 4. Evaluate numerically in image space
+python output/column/eval_segmentation.py \
+    --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+    --column-prob output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy \
+    --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+    --view-root output/column/real_gs_saved_test \
+    --gt-root output/column/real_gs_saved_test_gt \
+    --damage-label-id 3 \
+    --column-thresh 0.97 \
+    --column-radial-quantile 0.985 \
+    --out-dir output/column/test_metrics_viewer_strict_mv_c2f_tuned_col
+
+
+# 5. Evaluate numerically in 3D
+python output/column/test_3d_consistency.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
+  --label-root output/column/real_gs_saved_test_gt \
+  --view-root output/column/real_gs_saved_test \
+  --damage-label-id 3 \
+  --no-infer-damage-label-id
+
+# 6. Visualize interactively
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --column-prob output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy
+```
+
+
+## Ablation Experiments
+
+We use three settings for ablation:
+
+- **Baseline**: clean optimization without the multi-view candidate-attention framework.
+- **w/o Cross-Attention**: keeps the multi-view framework but removes the attention residual update.
+- **w/o Multi-View Losses**: keeps the full framework but disables the multi-view consistency losses.
+
+### 1. Baseline
+
+This is the clean baseline version without the cross-attention-based multi-view candidate framework.
+
+train
+```bash
+python output/column/optimize_gs_damage_clean.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --view-root output/column/real_gs_saved \
+  --label-root output/column/couple_veiws_labeled \
+  --damage-label-id 3 \
+  --debug-dir output/column/baseline_clean/debug \
+  --save-ply output/column/baseline_clean/0000_damage_opt.ply \
+  --save-highlight-ply output/column/baseline_clean/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/baseline_clean/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/baseline_clean/0000_damage_only.ply \
+  --save-damage output/column/baseline_clean/0000_damage_prob.npy \
+  --save-column output/column/baseline_clean/0000_column_prob.npy
+```
+
+3D test:
+```bash
+ python output/column/test_3d_consistency.py \
+    --gs-ply output/column/baseline_clean/0000_damage_opt.ply \
+    --damage-prob output/column/baseline_clean/0000_damage_prob.npy \
+    --label-root output/column/real_gs_saved_test_gt \
+    --view-root output/column/real_gs_saved_test \
+    --damage-label-id 3 \
+    --no-infer-damage-label-id \
+    --out-json output/column/baseline_clean/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+    --gs-ply output/column/baseline_clean/0000_damage_opt.ply \
+    --column-prob output/column/baseline_clean/0000_column_prob.npy \
+    --damage-prob output/column/baseline_clean/0000_damage_prob.npy \
+    --view-root output/column/real_gs_saved_test \
+    --gt-root output/column/real_gs_saved_test_gt \
+    --damage-label-id 3 \
+    --column-thresh 0.80 \
+    --damage-thresh 0.05 \
+    --out-dir output/column/test_metrics_viewer_baseline_clean
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/baseline_clean/0000_damage_opt.ply \
+  --column-prob output/column/baseline_clean/0000_column_prob.npy \
+  --damage-prob output/column/baseline_clean/0000_damage_prob.npy \
+  --column-thresh-export 0.80 \
+  --damage-thresh-export 0.05 \
+  --port 8893
+```
+
+### 2. w/o Cross-Attention
+
+
+
+This version keeps the multi-view framework but disables the cross-attention residual, so the model is still trained with semantic supervision and multi-view losses, but without attention-based feature fusion.
+
+train:
+```bash
+python output/column/optimize_gs_damage_noattn.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --view-root output/column/real_gs_saved \
+  --label-root output/column/couple_veiws_labeled \
+  --damage-label-id 3 \
+  --debug-dir output/column/ablation_no_crossattn/debug \
+  --save-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+  --save-highlight-ply output/column/ablation_no_crossattn/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/ablation_no_crossattn/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/ablation_no_crossattn/0000_damage_only.ply \
+  --save-damage output/column/ablation_no_crossattn/0000_damage_prob.npy \
+  --save-column output/column/ablation_no_crossattn/0000_column_prob.npy
+```
+
+3D test:
+```bash
+ python output/column/test_3d_consistency.py \
+    --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+    --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+    --label-root output/column/real_gs_saved_test_gt \
+    --view-root output/column/real_gs_saved_test \
+    --damage-label-id 3 \
+    --no-infer-damage-label-id \
+    --out-json output/column/ablation_no_crossattn/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+    --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+    --column-prob output/column/ablation_no_crossattn/0000_column_prob.npy \
+    --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+    --view-root output/column/real_gs_saved_test \
+    --gt-root output/column/real_gs_saved_test_gt \
+    --damage-label-id 3 \
+    --column-thresh 0.70 \
+    --damage-thresh 0.20 \
+    --column-radial-quantile 0.985 \
+    --out-dir output/column/test_metrics_viewer_ablation_no_crossattn_col_tuned
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_crossattn/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+  --column-thresh-export 0.80 \
+  --damage-thresh-export 0.20 \
+  --port 8893
+```
+
+
+
+### 3. w/o Multi-View Losses
+
+This version keeps the coarse-to-fine candidate-attention framework, but disables the multi-view consistency losses by setting their weights to zero.
+
+train
+```bash
+python output/column/optimize_gs_damage_multiview_coarse2fine.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --view-root output/column/real_gs_saved \
+  --label-root output/column/couple_veiws_labeled \
+  --damage-label-id 3 \
+  --mv-column-weight 0 \
+  --mv-damage-weight 0 \
+  --mv-var-weight 0 \
+  --debug-dir output/column/ablation_no_mv/debug \
+  --save-ply output/column/ablation_no_mv/0000_damage_opt.ply \
+  --save-highlight-ply output/column/ablation_no_mv/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/ablation_no_mv/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/ablation_no_mv/0000_damage_only.ply \
+  --save-damage output/column/ablation_no_mv/0000_damage_prob.npy \
+  --save-column output/column/ablation_no_mv/0000_column_prob.npy
+```
+3D test:
+```bash
+python output/column/test_3d_consistency.py \
+    --gs-ply output/column/ablation_no_mv/0000_damage_opt.ply \
+    --damage-prob output/column/ablation_no_mv/0000_damage_prob.npy \
+    --label-root output/column/real_gs_saved_test_gt \
+    --view-root output/column/real_gs_saved_test \
+    --damage-label-id 3 \
+    --no-infer-damage-label-id \
+    --out-json output/column/ablation_no_mv/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/ablation_no_mv/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_mv/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_mv/0000_damage_prob.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --column-thresh 0.80 \
+  --damage-thresh 0.001 \
+  --out-dir output/column/test_metrics_viewer_ablation_no_mv
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/ablation_no_mv/0000_damage_opt.ply \
+  --column-prob output/column/ablation_no_mv/0000_column_prob.npy \
+  --damage-prob output/column/ablation_no_mv/0000_damage_prob.npy \
+  --column-thresh-export 0.80 \
+  --damage-thresh-export 0.001 \
+  --port 8893
+```
+
+
+
+
+### Additional Ablation Note
+
+For the same ablation outputs, you can run [`eval_segmentation_column.py`](./eval_segmentation_column.py) with the matching `--gs-ply`, `--column-prob`, `--damage-prob`, `--view-root`, and `--gt-root` arguments to measure the strict column-mask metric.
+
+## View Number Analysis
+
+This section evaluates the same training pipeline with different numbers of labeled training views. The three settings are:
+
+- `3_views`
+- `5_views`
+- `7_views`
+
+Each subset uses the path-compatible folders under [`view_number_analysis`](./view_number_analysis/).
+
+### 1. 3 Views
+
+train
+```bash
+python output/column/optimize_gs_damage.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --label-root output/column/view_number_analysis/3_views/label_root \
+  --view-root output/column/view_number_analysis/3_views/view_root \
+  --save-ply output/column/view_number_analysis/3_views/outputs/0000_damage_opt.ply \
+  --save-highlight-ply output/column/view_number_analysis/3_views/outputs/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/view_number_analysis/3_views/outputs/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/view_number_analysis/3_views/outputs/0000_damage_only.ply \
+  --save-damage output/column/view_number_analysis/3_views/outputs/0000_damage_prob.npy \
+  --save-column output/column/view_number_analysis/3_views/outputs/0000_column_prob.npy
+```
+
+3D test:
+```bash
+python output/column/test_3d_consistency.py \
+  --gs-ply output/column/view_number_analysis/3_views/outputs/0000_damage_opt.ply \
+  --damage-prob output/column/view_number_analysis/3_views/outputs/0000_damage_prob.npy \
+  --label-root output/column/real_gs_saved_test_gt \
+  --view-root output/column/real_gs_saved_test \
+  --damage-label-id 3 \
+  --no-infer-damage-label-id \
+  --out-json output/column/view_number_analysis/3_views/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+    --gs-ply output/column/view_number_analysis/3_views/outputs/0000_damage_opt.ply \
+    --column-prob output/column/view_number_analysis/3_views/outputs/0000_column_prob.npy \
+    --damage-prob output/column/view_number_analysis/3_views/outputs/0000_damage_prob.npy \
+    --view-root output/column/real_gs_saved_test \
+    --gt-root output/column/real_gs_saved_test_gt \
+    --damage-label-id 3 \
+    --column-thresh 0.98 \
+    --column-radial-quantile 0.98 \
+    --out-dir output/column/view_number_analysis/3_views/test_metrics_tuned
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/view_number_analysis/3_views/outputs/0000_damage_opt.ply \
+  --column-prob output/column/view_number_analysis/3_views/outputs/0000_column_prob.npy \
+  --damage-prob output/column/view_number_analysis/3_views/outputs/0000_damage_prob.npy \
+  --port 8893
+```
+
+### 2. 5 Views
+
+train
+```bash
+python output/column/optimize_gs_damage.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --label-root output/column/view_number_analysis/5_views/label_root \
+  --view-root output/column/view_number_analysis/5_views/view_root \
+  --save-ply output/column/view_number_analysis/5_views/outputs/0000_damage_opt.ply \
+  --save-highlight-ply output/column/view_number_analysis/5_views/outputs/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/view_number_analysis/5_views/outputs/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/view_number_analysis/5_views/outputs/0000_damage_only.ply \
+  --save-damage output/column/view_number_analysis/5_views/outputs/0000_damage_prob.npy \
+  --save-column output/column/view_number_analysis/5_views/outputs/0000_column_prob.npy
+```
+
+3D test:
+```bash
+python output/column/test_3d_consistency.py \
+  --gs-ply output/column/view_number_analysis/5_views/outputs/0000_damage_opt.ply \
+  --damage-prob output/column/view_number_analysis/5_views/outputs/0000_damage_prob.npy \
+  --label-root output/column/real_gs_saved_test_gt \
+  --view-root output/column/real_gs_saved_test \
+  --damage-label-id 3 \
+  --no-infer-damage-label-id \
+  --out-json output/column/view_number_analysis/5_views/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/view_number_analysis/5_views/outputs/0000_damage_opt.ply \
+  --column-prob output/column/view_number_analysis/5_views/outputs/0000_column_prob.npy \
+  --damage-prob output/column/view_number_analysis/5_views/outputs/0000_damage_prob.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --out-dir output/column/view_number_analysis/5_views/test_metrics
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/view_number_analysis/5_views/outputs/0000_damage_opt.ply \
+  --column-prob output/column/view_number_analysis/5_views/outputs/0000_column_prob.npy \
+  --damage-prob output/column/view_number_analysis/5_views/outputs/0000_damage_prob.npy \
+  --port 8893
+```
+
+### 3. 7 Views
+
+train
+```bash
+python output/column/optimize_gs_damage.py \
+  --gs-ply output/column/gs_ply/0000.ply \
+  --label-root output/column/view_number_analysis/7_views/label_root \
+  --view-root output/column/view_number_analysis/7_views/view_root \
+  --save-ply output/column/view_number_analysis/7_views/outputs/0000_damage_opt.ply \
+  --save-highlight-ply output/column/view_number_analysis/7_views/outputs/0000_damage_highlight.ply \
+  --save-column-highlight-ply output/column/view_number_analysis/7_views/outputs/0000_column_highlight.ply \
+  --save-damage-only-ply output/column/view_number_analysis/7_views/outputs/0000_damage_only.ply \
+  --save-damage output/column/view_number_analysis/7_views/outputs/0000_damage_prob.npy \
+  --save-column output/column/view_number_analysis/7_views/outputs/0000_column_prob.npy
+```
+
+3D test:
+```bash
+python output/column/test_3d_consistency.py \
+  --gs-ply output/column/view_number_analysis/7_views/outputs/0000_damage_opt.ply \
+  --damage-prob output/column/view_number_analysis/7_views/outputs/0000_damage_prob.npy \
+  --label-root output/column/real_gs_saved_test_gt \
+  --view-root output/column/real_gs_saved_test \
+  --damage-label-id 3 \
+  --no-infer-damage-label-id \
+  --out-json output/column/view_number_analysis/7_views/metrics_3d_consistency.json
+```
+
+2D test:
+```bash
+python output/column/eval_segmentation.py \
+  --gs-ply output/column/view_number_analysis/7_views/outputs/0000_damage_opt.ply \
+  --column-prob output/column/view_number_analysis/7_views/outputs/0000_column_prob.npy \
+  --damage-prob output/column/view_number_analysis/7_views/outputs/0000_damage_prob.npy \
+  --view-root output/column/real_gs_saved_test \
+  --gt-root output/column/real_gs_saved_test_gt \
+  --damage-label-id 3 \
+  --out-dir output/column/view_number_analysis/7_views/test_metrics
+```
+
+viewer:
+```bash
+python output/column/view_trained_gs.py \
+  --gs-ply output/column/view_number_analysis/7_views/outputs/0000_damage_opt.ply \
+  --column-prob output/column/view_number_analysis/7_views/outputs/0000_column_prob.npy \
+  --damage-prob output/column/view_number_analysis/7_views/outputs/0000_damage_prob.npy \
+  --port 8893
+```

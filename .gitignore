@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+
+# generated data / outputs
+couple_veiws_labeled/
+test_metrics_viewer_*/
+*.json
+
+# heavy assets
+*.npy
+*.ply
+*.pth
+
+# optional generated folders
+real_gs_saved/
+real_gs_saved_test/
+real_gs_saved_test_gt/
+real_gs_viewer/
+view_save/
+gs_video/
+exports/
+debug_pred/
+debug_pred_full/
+debug_pred_mv_c2f/
+debug_pred_mv_local/
+debug_proj/
+view_number_analysis/
+
+# ablation and result dumps
+ablation_no_crossattn/
+ablation_no_mv/
+base/
+baseline_clean/
+gs_ply/
+gs_ply_full/
+gs_ply_mv_c2f/
