@@ -2,6 +2,10 @@
 
 This folder contains the workflow for training per-Gaussian column and damage masks on top of an existing Gaussian Splatting reconstruction.
 
+## 🎥 Demo
+
+[![Demo](./assets/demo.gif)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+
 ## Overview
 
 The pipeline consists of four stages:
@@ -367,9 +371,6 @@ Example command for the trained result:
 
 
 
-
-
-
 ```bash
 python output/column/test_3d_consistency.py \
   --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
@@ -386,28 +387,10 @@ This writes:
 output/column/gs_ply_mv_c2f/metrics_3d_consistency.json
 ```
 
-### Plain GS Baseline Example
-
-Example command for the baseline GS:
-
-```bash
-python output/column_mask/test_3d_consistency_basic_gs.py \
-  --gs-ply output/column_mask/gs_ply/column_mask.ply \
-  --label-root output/column_mask/couple_veiws_labeled \
-  --view-root output/column_mask/real_gs_saved_test \
-  --damage-label-id 2 \
-  --no-infer-damage-label-id
-```
-
-This writes:
-
-```text
-output/column_mask/metrics_3d_consistency_basic_gs.json
-```
 
 ### Neighborhood-Based Label Sampling
 
-Both scripts support:
+The scripts support:
 
 ```bash
 --label-radius <r>
