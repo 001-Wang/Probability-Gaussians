@@ -367,7 +367,7 @@ If you already know the correct id, pass both:
 --damage-label-id <id> --no-infer-damage-label-id
 ```
 
-### Trained Mask Gaussians Example
+### Trained Semantic Gaussians Example
 
 Example command for the trained result:
 
@@ -647,7 +647,7 @@ This version keeps the coarse-to-fine candidate-attention framework, but disable
 
 train
 ```bash
-python output/column/optimize_gs_damage_multiview_coarse2fine.py \
+python output/column/optimize_gs_damage_no_mv.py \
   --gs-ply output/column/gs_ply/0000.ply \
   --view-root output/column/real_gs_saved \
   --label-root output/column/couple_veiws_labeled \

@@ -58,8 +58,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--column-prob", type=Path, default=Path("output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy"))
     p.add_argument("--damage-prob", type=Path, default=Path("output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy"))
     p.add_argument("--view-root", type=Path, default=Path("output/column/real_gs_saved_test"))
-    p.add_argument("--gt-root", type=Path, default=Path("assets/examples/column/real_gs_saved_test_converted"))
-    p.add_argument("--damage-label-id", type=int, default=2)
+    p.add_argument("--gt-root", type=Path, default=Path("assets/examples/column/real_gs_saved_test_gt"))
+    p.add_argument("--damage-label-id", type=int, default=3)
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--out-dir", type=Path, default=Path("output/column/test_metrics_viewer_strict_mv_c2f"))
 
