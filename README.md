@@ -270,7 +270,7 @@ If `--debug-every` is enabled, extra images are saved under the debug directory 
 
 Use [`eval_segmentation.py`](./eval_segmentation.py) for image-space damage-mask evaluation on the held-out test views, and [`test_3d_consistency.py`](./test_3d_consistency.py) for the 3D consistency metrics.
 
-### 2D Damage Segmentation
+### 2D Damage Metrics
 
 ```bash
 python output/column/eval_segmentation.py \
@@ -296,42 +296,43 @@ The output JSON includes per-view and overall image-space segmentation metrics:
 - `f1`
 - `accuracy`
 
-### Viewer-Delta Damage Segmentation
+### ECE Calibration
 
-Use [`eval_segmentation.py`](./eval_segmentation.py) when you want image-space damage-mask metrics on the held-out test views in `output/column/real_gs_saved_test_gt`.
+Use [`eval_calibration.py`](./eval_calibration.py) to evaluate rendered image-space damage probability calibration with Expected Calibration Error (ECE) and Brier score on the held-out test views.
 
-Ablation example, w/o Cross-Attention:
+This evaluator renders a scalar damage-probability map using the same Gaussian visibility and alpha accumulation as the GS renderer, without routing the probability through the SH/RGB color path.
 
 ```bash
-python output/column/eval_segmentation.py \
-  --gs-ply output/column/ablation_no_crossattn/0000_damage_opt.ply \
-  --column-prob output/column/ablation_no_crossattn/0000_column_prob.npy \
-  --damage-prob output/column/ablation_no_crossattn/0000_damage_prob.npy \
+python output/column/eval_calibration.py \
+  --gs-ply output/column/gs_ply_mv_c2f/0000_damage_opt_mv_c2f.ply \
+  --column-prob output/column/gs_ply_mv_c2f/0000_column_prob_mv_c2f.npy \
+  --damage-prob output/column/gs_ply_mv_c2f/0000_damage_prob_mv_c2f.npy \
   --view-root output/column/real_gs_saved_test \
   --gt-root output/column/real_gs_saved_test_gt \
   --damage-label-id 3 \
-  --out-dir output/column/test_metrics_viewer_ablation_no_crossattn
+  --num-bins 15 \
+  --calibration-mode raw \
+  --out-dir output/column/test_calibration_mv_c2f
 ```
 
-Ablation example, w/o Multi-View Losses:
-
-```bash
-python output/column/eval_segmentation.py \
-  --gs-ply output/column/ablation_no_mv/0000_damage_opt.ply \
-  --column-prob output/column/ablation_no_mv/0000_column_prob.npy \
-  --damage-prob output/column/ablation_no_mv/0000_damage_prob.npy \
-  --view-root output/column/real_gs_saved_test \
-  --gt-root output/column/real_gs_saved_test_gt \
-  --damage-label-id 3 \
-  --out-dir output/column/test_metrics_viewer_ablation_no_mv
-```
-
-These write:
+This writes:
 
 ```text
-output/column/test_metrics_viewer_ablation_no_crossattn/metrics_summary.json
-output/column/test_metrics_viewer_ablation_no_mv/metrics_summary.json
+output/column/test_calibration_mv_c2f/calibration_summary.json
 ```
+
+The output JSON includes per-view and overall image-space calibration metrics:
+- `ece`
+- `brier`
+- `mean_confidence`
+- `positive_rate`
+- `bins`
+
+Useful options:
+- `--calibration-mode raw`: render the raw damage probabilities directly for calibration. This is the recommended mode for ECE.
+- `--calibration-mode hard_filtered`: apply the same strict thresholding and gating logic used by the segmentation-style evaluator before rendering.
+- `--mask-to-column`: compute calibration only inside the GT column/foreground region instead of over the full image.
+
 
 ## 3D Consistency Metrics
 
