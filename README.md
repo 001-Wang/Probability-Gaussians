@@ -6,8 +6,8 @@ This folder contains the workflow for training per-Gaussian column and damage ma
 
 
 ![Demo](./assets/base.gif) ![Demo](./assets/damage.gif)
-![Demo](./assets/bridge2_1_base.gif)![Demo](./assets/bridge2_1_damage.gif)
-![Demo](./assets/bridge2_1_basebase.gif)![Demo](./assets/bridge2_1_base.gif)
+![Demo](./assets/bridge2_1_default.gif)![Demo](./assets/bridge2_1_damage.gif)
+![Demo](./assets/bridge3_2_base.gif)![Demo](./assets/bridge3_2_base.gif)
 ## Overview
 
 The pipeline consists of four stages:
