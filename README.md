@@ -5,9 +5,24 @@ This folder contains the workflow for training per-Gaussian column and damage ma
 ## 🎥 Demo
 
 
-![Demo](./assets/base.gif) ![Demo](./assets/damage.gif)
-![Demo](./assets/bridge2_1_default.gif)![Demo](./assets/bridge2_1_damage.gif)
-![Demo](./assets/bridge3_2_base.gif)![Demo](./assets/bridge3_2_damage.gif)
+<table>
+  <tr>
+    <th>Base Rendering</th>
+    <th>Damage Localization</th>
+  </tr>
+  <tr>
+    <td><img src="./assets/base.gif" width="100%"></td>
+    <td><img src="./assets/damage.gif" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="./assets/bridge2_1_default.gif" width="100%"></td>
+    <td><img src="./assets/bridge2_1_damage.gif" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="./assets/bridge3_2_base.gif" width="100%"></td>
+    <td><img src="./assets/bridge3_2_damage.gif" width="100%"></td>
+  </tr>
+</table>
 ## Overview
 
 The pipeline consists of four stages:
