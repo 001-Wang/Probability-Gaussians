@@ -2,6 +2,15 @@
 
 This folder contains the workflow for training per-Gaussian column and damage masks on top of an existing Gaussian Splatting reconstruction.
 
+## Paper
+
+**Component-Aware 3D Damage Localization on Gaussian Splatting for Bridge Inspection**  
+Zuoxu Wang and Xiao Liang · Computer-Aided Civil and Infrastructure Engineering
+
+[Paper](https://www.sciencedirect.com/science/article/pii/S1093968726032214) · [Academic homepage](https://001-wang.github.io/#projects)
+
+This is the code and demo repository for the DA3-Initialized Semantic Gaussian Splatting project.
+
 ## 🎥 Demo
 
 
